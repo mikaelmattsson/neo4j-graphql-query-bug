@@ -31,7 +31,7 @@ type Grape
   potatoShortCut: Potato!
   @relationship(
     # (this)-[:HAS_CARROT]->(:Carrot)-[:HAS_POTATO]->(target:Potato)
-    type: ":HAS_CARROT]->(:Carrot)-[:HAS_POTATO",
+    type: "HAS_CARROT]->(:Carrot)-[:HAS_POTATO",
     direction: OUT
   )
 }
