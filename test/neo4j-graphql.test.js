@@ -6,25 +6,23 @@ import {typeDefs} from '../src/schema.js';
 
 let driver;
 let server;
-let originalConsoleLog;
-let logMessages = [];
 
 // Sample data to insert into the database
 const sampleData = [
   {
-    pear: {name: 'Part 1'},
+    pear: {name: 'Pear 1'},
     apple: {},
     banana: {price: 'expensive'},
     grape: {},
-    carrot: {},
+    carrot: {name: 'carrot1'},
     potato: {number: 'abc123'}
   },
   {
-    pear: {name: 'Part 2'},
+    pear: {name: 'Pear 2'},
     apple: {},
     banana: {price: 'cheap'},
     grape: {},
-    carrot: {},
+    carrot: {name: "carrot2"},
     potato: {number: 'def456'}
   }
 ];
@@ -32,15 +30,6 @@ const sampleData = [
 describe('Neo4j GraphQL Query Bug', () => {
   // Set up Neo4j connection and Apollo Server
   beforeAll(async () => {
-    // Capture console.log messages to inspect Cypher queries
-    originalConsoleLog = console.log;
-    console.log = (...args) => {
-      logMessages.push(args.join(' '));
-      originalConsoleLog(...args);
-    };
-
-    // Wait a bit for Neo4j to be fully ready
-    await new Promise(resolve => setTimeout(resolve, 10000));
 
     // Create Neo4j driver connection with proper configuration
     driver = neo4j.driver(
@@ -72,7 +61,7 @@ describe('Neo4j GraphQL Query Bug', () => {
           CREATE (a:Apple)
           CREATE (b:Banana {price: $bananaPrice})
           CREATE (g:Grape)
-          CREATE (c:Carrot)
+          CREATE (c:Carrot {name: $carrotName})
           CREATE (po:Potato {number: $potatoNumber})
           CREATE (p)-[:HAS_APPLE]->(a)
           CREATE (a)-[:HAS_BANANA]->(b)
@@ -81,6 +70,7 @@ describe('Neo4j GraphQL Query Bug', () => {
           CREATE (c)-[:HAS_POTATO]->(po)
         `, {
           pearName: data.pear.name,
+          carrotName: data.carrot.name,
           bananaPrice: data.banana.price,
           potatoNumber: data.potato.number
         });
@@ -93,20 +83,24 @@ describe('Neo4j GraphQL Query Bug', () => {
     const neoSchema = new Neo4jGraphQL({
       typeDefs,
       driver,
-      // debug: true // Enable debug mode to see Cypher queries
+      features: {
+        unsafeEscapeOptions: {
+          disableRelationshipTypeEscaping: true,
+          disableNodeLabelEscaping: false,
+        },
+      },
+      debug: true // Enable debug mode to see Cypher queries
     });
 
     // Create Apollo Server
     server = new ApolloServer({
       schema: await neoSchema.getSchema()
     });
+
     await server.start();
   }, 60000); // Increase timeout for setup
 
   afterAll(async () => {
-    // Restore original console.log
-    console.log = originalConsoleLog;
-
     if (server) {
       await server.stop();
     }
@@ -117,8 +111,6 @@ describe('Neo4j GraphQL Query Bug', () => {
 
   // Test 1: Simple query that should work
   it('should execute a simple query successfully', async () => {
-    logMessages = []; // Clear log messages
-
     const result = await server.executeOperation({
       query: `
         query {
@@ -146,7 +138,6 @@ describe('Neo4j GraphQL Query Bug', () => {
 
   // Test 2: Demonstrate the bug with complex nested filters
   it('should demonstrate the bug with complex nested filters', async () => {
-    logMessages = []; // Clear log messages
 
     const result = await server.executeOperation({
       query: `
@@ -173,70 +164,45 @@ describe('Neo4j GraphQL Query Bug', () => {
       `
     });
 
-    // Print the logs to see if there are any issues in the generated Cypher query
-    const cypherLogs = logMessages.filter(msg => msg.includes('CYPHER'));
-    console.log('Generated Cypher Queries:', cypherLogs);
-
     expect(result.body.kind).toBe('single');
     expect(result.body.singleResult.errors).toBeUndefined();
     expect(result.body.singleResult.data).not.toBeNull();
     expect(result.body.singleResult.data.pears).toHaveLength(0);
   });
 
-  // Test 3: Add another test with a more complicated query structure
-  it('should handle a more complex query with multiple nested filters', async () => {
-    logMessages = []; // Clear log messages
+
+  // Test 2: Demonstrate the bug with complex nested filters
+  it('should create node without any issues', async () => {
 
     const result = await server.executeOperation({
       query: `
-        query Parts {
-          parts(
-            where: {
-              AND: [
-                {
-                  apples_SOME: {
-                    banana: {
-                      price_CONTAINS: "awdawd"
-                    }
-                  }
-                },
-                {
-                  apples_SOME: {
-                    grape: {
-                      carrot: {
-                        potato: {
-                          number_STARTS_WITH: "abc"
+        mutation CreateGrapes {
+          createGrapes(
+            input: [
+              {
+                carrot: {
+                  connect:  {
+                     where:  {
+                        node:  {
+                           name: "carrot1"
                         }
-                      }
-                    }
+                     }
                   }
                 }
-              ]
-            }
+              }
+            ]
           ) {
-            name
-            apples {
-              banana {
-                price
-              }
-              grape {
-                carrot {
-                  potato {
-                    number
-                  }
-                }
-              }
+            info {
+              nodesCreated
             }
           }
         }
       `
     });
 
-    // Print the logs to see if there are any issues in the generated Cypher query
-    const cypherLogs = logMessages.filter(msg => msg.includes('CYPHER'));
-    console.log('Generated Cypher Queries for Complex Query:', cypherLogs);
-
-    console.log('No errors found in complex query');
+    expect(result.body.kind).toBe('single');
+    expect(result.body.singleResult.errors).toBeUndefined();
     expect(result.body.singleResult.data).not.toBeNull();
+    expect(result.body.singleResult.data.createGrapes.info.nodesCreated).toBe(1);
   });
 });

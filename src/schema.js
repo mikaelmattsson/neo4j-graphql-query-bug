@@ -27,12 +27,21 @@ type Grape
 {
   carrot: Carrot
   @relationship(type: "HAS_CARROT", direction: OUT)
+  
+  potatoShortCut: Potato!
+  @relationship(
+    # (this)-[:HAS_CARROT]->(:Carrot)-[:HAS_POTATO]->(target:Potato)
+    type: ":HAS_CARROT]->(:Carrot)-[:HAS_POTATO",
+    direction: OUT
+  )
 }
 
 type Carrot
 {
-  potato: Potato! # <--- Removing REQUIRED here fixes the issue, but that is not an option for us.
-  @relationship(type: "HAS_POTATO", direction: IN)
+  name: String! @unique
+
+  potato: Potato!
+  @relationship(type: "HAS_POTATO", direction: OUT)
 }
 
 type Potato
